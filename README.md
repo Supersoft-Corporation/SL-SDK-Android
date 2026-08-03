@@ -97,9 +97,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleDeepLink(deepLink: SoftLinkDeepLink) {
         when (deepLink.screen) {
-            "DOCTOR_PROFILE" -> {
-                val doctorId = deepLink.getParam("doctorId")
-                // navigate to doctor profile
+            "BOOKING_DETAIL" -> {
+                val bookingId = deepLink.getParam("bookingId")
+                // navigate to booking detail
             }
             "PRODUCT_DETAIL" -> {
                 val productId = deepLink.getParam("productId")
@@ -133,8 +133,8 @@ SoftLink.init(
 
 ```kotlin
 SoftLink.generateReferralLink(
-    screenKey = "DOCTOR_PROFILE",
-    values = mapOf("doctorId" to "123", "categoryId" to "456"),
+    screenKey = "PRODUCT_DETAIL",
+    values = mapOf("productId" to "123", "categoryId" to "456"),
     token = "PARENT_TOKEN", // optional
     referrerId = currentUser.id // optional
 ) { url ->
@@ -153,8 +153,8 @@ SoftLink.generateReferralLink(
 
 ```java
 SoftLink.generateReferralLink(
-    "DOCTOR_PROFILE",
-    Map.of("doctorId", "123"),
+    "PRODUCT_DETAIL",
+    Map.of("productId", "123"),
     null,
     null,
     url -> {
@@ -171,7 +171,7 @@ SoftLink.generateReferralLink(
 | Property | Type | Description |
 |----------|------|-------------|
 | `token` | `String` | Unique link token |
-| `screen` | `String` | Screen key (e.g. `DOCTOR_PROFILE`) |
+| `screen` | `String` | Screen key (e.g. `PRODUCT_DETAIL`) |
 | `params` | `Map<String, Any>` | Link parameters |
 | `linkType` | `String` | `static` or `dynamic` |
 
