@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 internal class SoftLinkClient(
-    private val context: Context,
+    val context: Context,
     private val baseUrl: String,
     private val apiKey: String
 ) {
