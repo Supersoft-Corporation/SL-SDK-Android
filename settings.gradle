@@ -14,5 +14,9 @@ dependencyResolutionManagement {
     }
 }
 
+	dependencies {
+	        implementation 'com.github.Supersoft-Corporation:SL-SDK-Android:Tag'
+	}
+
 rootProject.name = "SL-SDK-Android"
 include ':softlink-android-sdk'
