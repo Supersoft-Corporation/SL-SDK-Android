@@ -31,7 +31,7 @@ dependencyResolutionManagement {
 In your app's `build.gradle`:
 ```groovy
 dependencies {
-    implementation 'com.github.supersoftcorporation:SL-SDK-Android:0.0.9'
+    implementation 'com.github.Supersoft-Corporation:SL-SDK-Android:0.0.11'
 }
 ```
 
