@@ -35,8 +35,8 @@ internal class SoftLinkClient(
             val queryParams = mutableMapOf<String, String>()
             queryParams.putAll(fingerprint)
             if (utmSource.isNotEmpty()) queryParams["utm_source"] = utmSource
-
             val urlBuilder = StringBuilder("$baseUrl/api/links/token/$token?")
+            Log.d(TAG, "resolveByToken URL: ${urlBuilder.toString()}")
             queryParams.entries.forEachIndexed { index, entry ->
                 if (index > 0) urlBuilder.append("&")
                 urlBuilder.append("${entry.key}=${entry.value}")
@@ -63,6 +63,8 @@ internal class SoftLinkClient(
             } else null
         } catch (e: Exception) {
             Log.e(TAG, "resolveByToken error: ${e.message}")
+            Log.e(TAG, "resolveByToken exception: ${e.javaClass.simpleName}")
+            Log.e(TAG, "resolveByToken stack: ${e.stackTraceToString()}")
             null
         }
     }
