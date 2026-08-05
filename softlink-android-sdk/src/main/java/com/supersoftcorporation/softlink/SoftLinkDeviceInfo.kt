@@ -10,38 +10,55 @@ internal object SoftLinkDeviceInfo {
 
     /**
      * Get device fingerprint map for API calls
+     * Matches Flutter's getDeviceFingerprint()
      */
     suspend fun getDeviceFingerprint(context: Context): Map<String, String> {
         return mapOf(
             "platform" to "android",
             "device_id" to getDeviceId(context),
             "model" to Build.MODEL,
-            "manufacturer" to Build.MANUFACTURER,
+            "brand" to Build.BRAND,
             "os_version" to Build.VERSION.RELEASE
         )
     }
 
     /**
-     * Get a stable device ID
-     * Priority: Android ID → AppSet ID (for Android 12+)
+     * Get a stable device ID with caching
+     * Matches Flutter's getDeviceId() with cached check
+     * Priority: Cached → Android ID → AppSet ID → Build.ID
      */
     suspend fun getDeviceId(context: Context): String {
-        // Try Android ID first (stable across app reinstalls on most devices)
+        // Return cached device ID if available — matches Flutter
+        val cached = SoftLinkStorage.getDeviceId(context)
+        if (!cached.isNullOrEmpty()) return cached
+
+        var deviceId = ""
+
+        // Try Android ID first (matches Flutter's info.id)
         val androidId = Settings.Secure.getString(
             context.contentResolver,
             Settings.Secure.ANDROID_ID
         )
         if (!androidId.isNullOrEmpty() && androidId != "9774d56d682e549c") {
-            return androidId
+            deviceId = androidId
         }
 
         // Fallback to AppSet ID (Google's privacy-safe device ID)
-        return try {
-            val appSetIdClient = AppSet.getClient(context)
-            val appSetInfo = appSetIdClient.appSetIdInfo.await()
-            appSetInfo.id
-        } catch (e: Exception) {
-            Build.ID
+        if (deviceId.isEmpty()) {
+            deviceId = try {
+                val appSetIdClient = AppSet.getClient(context)
+                val appSetInfo = appSetIdClient.appSetIdInfo.await()
+                appSetInfo.id
+            } catch (e: Exception) {
+                Build.ID
+            }
         }
+
+        // Cache it — matches Flutter's SoftLinkStorage.setDeviceId()
+        if (deviceId.isNotEmpty()) {
+            SoftLinkStorage.setDeviceId(context, deviceId)
+        }
+
+        return deviceId
     }
 }

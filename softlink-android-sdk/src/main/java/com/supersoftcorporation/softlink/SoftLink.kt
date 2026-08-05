@@ -3,6 +3,7 @@ package com.supersoftcorporation.softlink
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,13 +28,22 @@ import kotlinx.coroutines.launch
  */
 object SoftLink {
 
+    private const val TAG = "SoftLink"
+
     private var client: SoftLinkClient? = null
     private var onDeepLink: ((SoftLinkDeepLink) -> Unit)? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    // Deduplication state — matches Flutter's _lastHandledToken + _lastHandledTime
+    private var lastHandledToken: String? = null
+    private var lastHandledTime: Long = 0
+
+    // Processing guard — matches Flutter's _processingToken
+    private var processingToken: String? = null
+
     /**
      * Initialize the SoftLink SDK.
-     * Call this in your Application.onCreate() or MainActivity.onCreate()
+     * Call this in your Activity.onCreate() BEFORE handleInitialIntent()
      *
      * @param context Application or Activity context
      * @param baseUrl Your SoftLink backend URL (default: https://api.supersoftlink.com)
@@ -54,9 +64,30 @@ object SoftLink {
             baseUrl = baseUrl.trimEnd('/'),
             apiKey = apiKey
         )
+        Log.d(TAG, "SoftLink SDK initialized")
+        // Note: deferred check is triggered from handleInitialIntent
+        // if no URI is present — matches Flutter's init() flow
+    }
 
-        // Check deferred deep link on first install
-        checkDeferred(context)
+    /**
+     * Call this in your Activity.onCreate() AFTER SoftLink.init()
+     * to handle the initial deep link that launched the app.
+     * If no deep link URI is present, triggers deferred deep link check.
+     *
+     * @param intent The intent from onCreate()
+     */
+    @JvmStatic
+    fun handleInitialIntent(intent: Intent?) {
+        val uri = intent?.data
+        if (uri != null) {
+            // Has a URI — resolve it directly, skip deferred check
+            Log.d(TAG, "handleInitialIntent: URI found: $uri")
+            resolveFromUri(uri)
+        } else {
+            // No URI — check for deferred deep link (matches Flutter's init flow)
+            Log.d(TAG, "handleInitialIntent: No URI, checking deferred...")
+            client?.let { checkDeferred(it.context) }
+        }
     }
 
     /**
@@ -67,22 +98,30 @@ object SoftLink {
      */
     @JvmStatic
     fun handleIntent(intent: Intent?) {
-        intent ?: return
-        val uri = intent.data ?: return
+        val uri = intent?.data ?: return
+        Log.d(TAG, "handleIntent: URI: $uri")
         resolveFromUri(uri)
     }
 
     /**
-     * Call this in your Activity.onCreate() to handle the initial deep link
-     * that launched the app.
+     * Resolve a deep link by token directly.
+     * Useful for testing or manual resolution.
      *
-     * @param intent The intent from onCreate()
+     * @param token The link token
+     * @param callback Callback with resolved SoftLinkDeepLink or null
      */
     @JvmStatic
-    fun handleInitialIntent(intent: Intent?) {
-        intent ?: return
-        val uri = intent.data ?: return
-        resolveFromUri(uri)
+    @JvmOverloads
+    fun resolveToken(
+        token: String,
+        utmSource: String = "",
+        callback: SoftLinkCallback<SoftLinkDeepLink?>
+    ) {
+        val c = client ?: run { callback.onResult(null); return }
+        scope.launch {
+            val deepLink = c.resolveByToken(token, utmSource = utmSource)
+            callback.onResult(deepLink)
+        }
     }
 
     /**
@@ -114,61 +153,102 @@ object SoftLink {
     }
 
     // Internal — resolve deep link from URI
+    // Matches Flutter's _handleUri() with full deduplication logic
     internal fun resolveFromUri(uri: Uri) {
-    val token = extractToken(uri) ?: return
-    val c = client ?: return
-    val ctx = c.context
-    
-    // Prevent duplicate handling of same URI
-    val uriString = uri.toString()
-    if (SoftLinkStorage.getLastUri(ctx) == uriString) return
-    SoftLinkStorage.setLastUri(ctx, uriString)
-    
-    scope.launch {
-        val deepLink = c.resolveByToken(token)
-        deepLink?.let { onDeepLink?.invoke(it) }
-        // Clear after handling
-        SoftLinkStorage.clearLastUri(ctx)
-    }
-}
-    // internal fun resolveFromUri(uri: Uri) {
-    //     val token = extractToken(uri) ?: return
-    //     val c = client ?: return
-    //     scope.launch {
-    //         val deepLink = c.resolveByToken(token)
-    //         deepLink?.let { onDeepLink?.invoke(it) }
-    //     }
-    // }
-
-    // Internal — check for deferred deep link on install
-    private fun checkDeferred(context: Context) {
+        val token = extractToken(uri) ?: return
         val c = client ?: return
-        scope.launch(Dispatchers.IO) {
-            // Update fingerprint with device ID first
-            val deviceId = SoftLinkDeviceInfo.getDeviceId(context)
-            val referrer = SoftLinkInstallReferrer.getReferrer(context)
-            if (deviceId.isNotEmpty()) {
-                c.updateFingerprintDeviceId(deviceId, referrer)
-            }
-            // Then resolve deferred deep link
-            val deepLink = c.resolveDeferred(deviceId = deviceId, referrer = referrer)
-            deepLink?.let {
-                scope.launch(Dispatchers.Main) {
+        val ctx = c.context
+
+        Log.d(TAG, "resolveFromUri: token=$token")
+
+        // Deduplicate — ignore same token within 2 seconds
+        // Matches Flutter's _lastHandledToken + _lastHandledTime check
+        val now = System.currentTimeMillis()
+        if (lastHandledToken == token && now - lastHandledTime < 2000) {
+            Log.d(TAG, "resolveFromUri: duplicate URI ignored: $token")
+            return
+        }
+        lastHandledToken = token
+        lastHandledTime = now
+
+        // Prevent duplicate handling of same URI via storage
+        // Matches Flutter's SoftLinkStorage.getLastUri() check
+        // val uriString = uri.toString()
+        if (SoftLinkStorage.getLastUri(ctx) == token) {
+            Log.d(TAG, "resolveFromUri: already handled token: $token")
+            return
+        }
+        SoftLinkStorage.setLastUri(ctx, token)
+
+        // Processing guard — matches Flutter's _processingToken check
+        if (processingToken == token) {
+            Log.d(TAG, "resolveFromUri: already processing token: $token")
+            return
+        }
+        processingToken = token
+
+        // Extract utm_source from URI — matches Flutter's utmSource extraction
+        val utmSource = uri.getQueryParameter("utm_source") ?: ""
+
+        scope.launch {
+            try {
+                val deepLink = c.resolveByToken(token, utmSource = utmSource)
+                deepLink?.let {
+                    Log.d(TAG, "resolveFromUri: resolved screen=${it.screen}")
                     onDeepLink?.invoke(it)
+                } ?: run {
+                    Log.d(TAG, "resolveFromUri: no deep link found for token=$token")
+                    onDeepLink?.invoke(null as SoftLinkDeepLink? ?: return@run)
                 }
+            } finally {
+                processingToken = null
+                SoftLinkStorage.clearLastUri(ctx)
             }
         }
     }
 
+    // Internal — check for deferred deep link on install
+    // Matches Flutter's _checkDeferred()
+    private fun checkDeferred(context: Context) {
+        // Only check once — matches Flutter's one-time deferred resolution
+        if (SoftLinkStorage.isDeferredResolved(context)) {
+            Log.d(TAG, "checkDeferred: already resolved, skipping")
+            return
+        }
+
+        val c = client ?: return
+        scope.launch(Dispatchers.IO) {
+            Log.d(TAG, "checkDeferred: starting...")
+            val deviceId = SoftLinkDeviceInfo.getDeviceId(context)
+            val referrer = SoftLinkInstallReferrer.getReferrer(context)
+
+            Log.d(TAG, "checkDeferred: deviceId=$deviceId referrer=$referrer")
+
+            if (deviceId.isNotEmpty()) {
+                c.updateFingerprintDeviceId(deviceId, referrer)
+            }
+
+            val deepLink = c.resolveDeferred(deviceId = deviceId, referrer = referrer)
+            deepLink?.let {
+                Log.d(TAG, "checkDeferred: resolved screen=${it.screen}")
+                SoftLinkStorage.setDeferredResolved(context)
+                scope.launch(Dispatchers.Main) {
+                    onDeepLink?.invoke(it)
+                }
+            } ?: Log.d(TAG, "checkDeferred: no deferred deep link found")
+        }
+    }
+
     // Internal — extract token from URI
+    // Handles: https://domain.com/l/TOKEN or scheme://l/TOKEN
     private fun extractToken(uri: Uri): String? {
-        // Handles: https://domain.com/l/TOKEN or scheme://l/TOKEN
         val segments = uri.pathSegments
         val lIndex = segments.indexOf("l")
         return if (lIndex != -1 && lIndex + 1 < segments.size) {
             segments[lIndex + 1]
         } else {
-            null
+            // Fallback: last segment if no 'l' found
+            uri.pathSegments.lastOrNull()?.takeIf { it.isNotEmpty() }
         }
     }
 }

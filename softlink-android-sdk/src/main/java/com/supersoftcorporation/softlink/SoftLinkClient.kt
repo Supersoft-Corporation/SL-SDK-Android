@@ -1,6 +1,7 @@
 package com.supersoftcorporation.softlink
 
 import android.content.Context
+import android.util.Log
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -14,6 +15,8 @@ internal class SoftLinkClient(
     private val apiKey: String
 ) {
 
+    private val TAG = "SoftLinkClient"
+
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -24,47 +27,63 @@ internal class SoftLinkClient(
 
     /**
      * Resolve a deep link by token (when app opens via deep link)
+     * Matches Flutter's resolveToken()
      */
-    suspend fun resolveByToken(token: String): SoftLinkDeepLink? {
+    suspend fun resolveByToken(token: String, utmSource: String = ""): SoftLinkDeepLink? {
         return try {
-            val deviceInfo = SoftLinkDeviceInfo.getDeviceFingerprint(context)
-            val url = "$baseUrl/api/links/token/$token?" +
-                "platform=${deviceInfo["platform"]}" +
-                "&device_id=${deviceInfo["device_id"]}"
+            val fingerprint = SoftLinkDeviceInfo.getDeviceFingerprint(context)
+            val queryParams = mutableMapOf<String, String>()
+            queryParams.putAll(fingerprint)
+            if (utmSource.isNotEmpty()) queryParams["utm_source"] = utmSource
+
+            val urlBuilder = StringBuilder("$baseUrl/api/links/token/$token?")
+            queryParams.entries.forEachIndexed { index, entry ->
+                if (index > 0) urlBuilder.append("&")
+                urlBuilder.append("${entry.key}=${entry.value}")
+            }
 
             val request = Request.Builder()
-                .url(url)
+                .url(urlBuilder.toString())
                 .get()
                 .build()
 
             val response = httpClient.newCall(request).execute()
+            if (response.code != 200) return null
             val body = response.body?.string() ?: return null
             val json = JSONObject(body)
 
             if (json.optBoolean("found", false)) {
-                SoftLinkDeepLink(
-                    token = json.optString("token", token),
-                    screen = json.optString("screen", ""),
-                    params = parseParams(json.optJSONObject("params")),
-                    linkType = json.optString("link_type", "static")
-                )
+                // SoftLinkDeepLink(
+                //     token = json.optString("token", token),
+                //     screen = json.optString("screen", ""),
+                //     params = parseParams(json.optJSONObject("params")),
+                //     linkType = json.optString("link_type", "static")
+                // )
+                SoftLinkDeepLink.fromJson(json)
             } else null
         } catch (e: Exception) {
+            Log.e(TAG, "resolveByToken error: ${e.message}")
             null
         }
     }
 
     /**
      * Resolve deferred deep link (called on first install)
+     * Matches Flutter's resolveDeferred()
      */
     suspend fun resolveDeferred(deviceId: String, referrer: String?): SoftLinkDeepLink? {
         return try {
-            val deviceInfo = SoftLinkDeviceInfo.getDeviceFingerprint(context)
+            // Include full fingerprint — matches Flutter's approach
+            val fingerprint = SoftLinkDeviceInfo.getDeviceFingerprint(context)
+            val queryParams = mutableMapOf<String, String>()
+            queryParams.putAll(fingerprint)
+            if (!referrer.isNullOrEmpty()) queryParams["referrer"] = referrer
+            if (deviceId.isNotEmpty()) queryParams["device_id"] = deviceId
+
             val urlBuilder = StringBuilder("$baseUrl/api/links/resolve?")
-            urlBuilder.append("platform=${deviceInfo["platform"]}")
-            urlBuilder.append("&device_id=$deviceId")
-            if (!referrer.isNullOrEmpty()) {
-                urlBuilder.append("&referrer=${referrer}")
+            queryParams.entries.forEachIndexed { index, entry ->
+                if (index > 0) urlBuilder.append("&")
+                urlBuilder.append("${entry.key}=${entry.value}")
             }
 
             val request = Request.Builder()
@@ -74,24 +93,28 @@ internal class SoftLinkClient(
                 .build()
 
             val response = httpClient.newCall(request).execute()
+            if (response.code != 200) return null
             val body = response.body?.string() ?: return null
             val json = JSONObject(body)
 
             if (json.optBoolean("found", false)) {
-                SoftLinkDeepLink(
-                    token = json.optString("token", ""),
-                    screen = json.optString("screen", ""),
-                    params = parseParams(json.optJSONObject("params")),
-                    linkType = json.optString("link_type", "static")
-                )
+                // SoftLinkDeepLink(
+                //     token = json.optString("token", ""),
+                //     screen = json.optString("screen", ""),
+                //     params = parseParams(json.optJSONObject("params")),
+                //     linkType = json.optString("link_type", "static")
+                // )
+                SoftLinkDeepLink.fromJson(json)
             } else null
         } catch (e: Exception) {
+            Log.e(TAG, "resolveDeferred error: ${e.message}")
             null
         }
     }
 
     /**
      * Update fingerprint with device ID (for improved deferred deep link matching)
+     * Matches Flutter's updateFingerprintDeviceId()
      */
     suspend fun updateFingerprintDeviceId(deviceId: String, referrer: String?) {
         try {
@@ -108,12 +131,13 @@ internal class SoftLinkClient(
 
             httpClient.newCall(request).execute()
         } catch (e: Exception) {
-            // Silent fail — non-critical
+            // Silent fail — non-critical — matches Flutter's catch (_) {}
         }
     }
 
     /**
      * Generate a referral/runtime link
+     * Matches Flutter's generateReferralLink()
      */
     suspend fun generateReferralLink(
         screenKey: String,
@@ -140,20 +164,23 @@ internal class SoftLinkClient(
                 .build()
 
             val response = httpClient.newCall(request).execute()
+            // Accept both 200 and 201 — matches Flutter's statusCode check
+            if (response.code != 200 && response.code != 201) return null
             val responseBody = response.body?.string() ?: return null
             val json = JSONObject(responseBody)
             json.optString("url").takeIf { it.isNotEmpty() }
         } catch (e: Exception) {
+            Log.e(TAG, "generateReferralLink error: ${e.message}")
             null
         }
     }
 
-    private fun parseParams(json: JSONObject?): Map<String, Any> {
-        json ?: return emptyMap()
-        val map = mutableMapOf<String, Any>()
-        json.keys().forEach { key ->
-            map[key] = json.get(key)
-        }
-        return map
-    }
+    // private fun parseParams(json: JSONObject?): Map<String, Any> {
+    //     json ?: return emptyMap()
+    //     val map = mutableMapOf<String, Any>()
+    //     json.keys().forEach { key ->
+    //         map[key] = json.get(key)
+    //     }
+    //     return map
+    // }
 }

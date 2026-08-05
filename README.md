@@ -18,6 +18,7 @@ Official Android SDK for [SoftLink](https://supersoftlink.com) — a deep link m
 In your root `settings.gradle`:
 ```groovy
 dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
         mavenCentral()
