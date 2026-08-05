@@ -108,6 +108,7 @@ object SoftLink {
      * Useful for testing or manual resolution.
      *
      * @param token The link token
+     * @param utmSource Optional UTM source parameter
      * @param callback Callback with resolved SoftLinkDeepLink or null
      */
     @JvmStatic
@@ -118,9 +119,11 @@ object SoftLink {
         callback: SoftLinkCallback<SoftLinkDeepLink?>
     ) {
         val c = client ?: run { callback.onResult(null); return }
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val deepLink = c.resolveByToken(token, utmSource = utmSource)
-            callback.onResult(deepLink)
+            scope.launch(Dispatchers.Main) {
+                callback.onResult(deepLink)
+            }
         }
     }
 
@@ -146,9 +149,11 @@ object SoftLink {
             callback.onResult(null)
             return
         }
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             val url = c.generateReferralLink(screenKey, values, token, referrerId)
-            callback.onResult(url)
+            scope.launch(Dispatchers.Main) {
+                callback.onResult(url)
+            }
         }
     }
 
@@ -171,9 +176,8 @@ object SoftLink {
         lastHandledToken = token
         lastHandledTime = now
 
-        // Prevent duplicate handling of same URI via storage
+        // Prevent duplicate handling of same token via storage
         // Matches Flutter's SoftLinkStorage.getLastUri() check
-        // val uriString = uri.toString()
         if (SoftLinkStorage.getLastUri(ctx) == token) {
             Log.d(TAG, "resolveFromUri: already handled token: $token")
             return
@@ -190,15 +194,14 @@ object SoftLink {
         // Extract utm_source from URI — matches Flutter's utmSource extraction
         val utmSource = uri.getQueryParameter("utm_source") ?: ""
 
-        scope.launch {
+        scope.launch(Dispatchers.IO) {
             try {
                 val deepLink = c.resolveByToken(token, utmSource = utmSource)
-                deepLink?.let {
-                    Log.d(TAG, "resolveFromUri: resolved screen=${it.screen}")
-                    onDeepLink?.invoke(it)
-                } ?: run {
-                    Log.d(TAG, "resolveFromUri: no deep link found for token=$token")
-                    onDeepLink?.invoke(null as SoftLinkDeepLink? ?: return@run)
+                scope.launch(Dispatchers.Main) {
+                    deepLink?.let {
+                        Log.d(TAG, "resolveFromUri: resolved screen=${it.screen}")
+                        onDeepLink?.invoke(it)
+                    } ?: Log.d(TAG, "resolveFromUri: no deep link found for token=$token")
                 }
             } finally {
                 processingToken = null

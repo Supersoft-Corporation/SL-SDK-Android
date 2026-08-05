@@ -56,7 +56,7 @@ afterEvaluate {
                 from components.release
                 groupId = 'com.github.supersoftcorporation'
                 artifactId = 'softlink-android-sdk'
-                version = '0.0.14'
+                version = '0.0.15'
             }
         }
     }
