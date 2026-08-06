@@ -214,10 +214,10 @@ object SoftLink {
     // Matches Flutter's _checkDeferred()
     private fun checkDeferred(context: Context) {
         // Only check once — matches Flutter's one-time deferred resolution
-        if (SoftLinkStorage.isDeferredResolved(context)) {
-            Log.d(TAG, "checkDeferred: already resolved, skipping")
-            return
-        }
+//        if (SoftLinkStorage.isDeferredResolved(context)) {
+//            Log.d(TAG, "checkDeferred: already resolved, skipping")
+//            return
+//        }
 
         val c = client ?: return
         scope.launch(Dispatchers.IO) {
@@ -234,7 +234,7 @@ object SoftLink {
             val deepLink = c.resolveDeferred(deviceId = deviceId, referrer = referrer)
             deepLink?.let {
                 Log.d(TAG, "checkDeferred: resolved screen=${it.screen}")
-                SoftLinkStorage.setDeferredResolved(context)
+//                SoftLinkStorage.setDeferredResolved(context)
                 scope.launch(Dispatchers.Main) {
                     onDeepLink?.invoke(it)
                 }

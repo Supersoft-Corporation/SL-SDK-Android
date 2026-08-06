@@ -8,7 +8,7 @@ internal object SoftLinkStorage {
     private const val PREFS_NAME = "softlink_prefs"
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_LAST_URI = "last_handled_uri" // stores token, not full URI — matches Flutter
-    private const val KEY_DEFERRED_RESOLVED = "deferred_resolved"
+//    private const val KEY_DEFERRED_RESOLVED = "deferred_resolved"
 
     private fun prefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -39,11 +39,11 @@ internal object SoftLinkStorage {
 
     // Deferred deep link resolved flag — Android only (not in Flutter)
     // Flutter handles this differently via init() flow
-    fun isDeferredResolved(context: Context): Boolean {
-        return prefs(context).getBoolean(KEY_DEFERRED_RESOLVED, false)
-    }
+//    fun isDeferredResolved(context: Context): Boolean {
+//        return prefs(context).getBoolean(KEY_DEFERRED_RESOLVED, false)
+//    }
 
-    fun setDeferredResolved(context: Context) {
-        prefs(context).edit().putBoolean(KEY_DEFERRED_RESOLVED, true).apply()
-    }
+//    fun setDeferredResolved(context: Context) {
+//        prefs(context).edit().putBoolean(KEY_DEFERRED_RESOLVED, true).apply()
+//    }
 }
