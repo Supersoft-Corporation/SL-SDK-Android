@@ -1,7 +1,7 @@
 plugins {
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
-    id 'maven-publish'
+    id 'com.vanniktech.maven.publish'
 }
 
 android {
@@ -12,7 +12,7 @@ android {
         minSdk 21
         targetSdk 34
         versionCode 1
-        versionName "0.0.14"
+        versionName "0.0.16"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
     }
@@ -32,12 +32,6 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
-
-    publishing {
-        singleVariant('release') {
-            withSourcesJar()
-        }
-    }
 }
 
 dependencies {
@@ -48,16 +42,46 @@ dependencies {
     implementation 'com.android.installreferrer:installreferrer:2.2'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3'
 }
+mavenPublishing {
+    configure(new com.vanniktech.maven.publish.AndroidSingleVariantLibrary(
+            "release",    // variant
+            true,         // sourcesJar
+            false         // publishJavadocJar = false — skip Dokka
+    ))
 
-afterEvaluate {
-    publishing {
-        publications {
-            release(MavenPublication) {
-                from components.release
-                groupId = 'com.github.supersoftcorporation'
-                artifactId = 'softlink-android-sdk'
-                version = '0.0.15'
+    coordinates(
+            'com.supersoftcorporation',
+            'softlink-android-sdk',
+            '0.0.16'
+    )
+
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
+
+    pom {
+        name = 'SoftLink Android SDK'
+        description = 'Official Android SDK for SoftLink — Deep Link Management Platform'
+        url = 'https://github.com/Supersoft-Corporation/SL-SDK-Android'
+
+        licenses {
+            license {
+                name = 'Apache License 2.0'
+                url = 'https://www.apache.org/licenses/LICENSE-2.0'
             }
+        }
+
+        developers {
+            developer {
+                id = 'supersoftcorporation'
+                name = 'SuperSoft Corporation'
+                email = 'supersoft.pd@gmail.com'
+            }
+        }
+
+        scm {
+            url = 'https://github.com/Supersoft-Corporation/SL-SDK-Android'
+            connection = 'scm:git:git://github.com/Supersoft-Corporation/SL-SDK-Android.git'
+            developerConnection = 'scm:git:ssh://git@github.com/Supersoft-Corporation/SL-SDK-Android.git'
         }
     }
 }
