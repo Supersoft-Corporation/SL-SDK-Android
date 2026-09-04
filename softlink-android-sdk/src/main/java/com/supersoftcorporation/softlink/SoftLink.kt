@@ -41,6 +41,25 @@ object SoftLink {
     // Processing guard — matches Flutter's _processingToken
     private var processingToken: String? = null
 
+    private suspend fun reportAppOpenInternal(context: Context) {
+        val c = client ?: return
+        try {
+            val deviceId = SoftLinkDeviceInfo.getDeviceId(context)
+            val deviceInfo = SoftLinkDeviceInfo.getDeviceDetails(context)
+            c.reportAppOpen(
+                deviceId = deviceId,
+                platform = "android",
+                osVersion = deviceInfo["os_version"],
+                deviceModel = deviceInfo["device_model"],
+                screenWidth = deviceInfo["screen_width"]?.toIntOrNull(),
+                screenHeight = deviceInfo["screen_height"]?.toIntOrNull(),
+                locale = deviceInfo["locale"]
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "reportAppOpen error: ${e.message}")
+        }
+    }
+
     /**
      * Initialize the SoftLink SDK.
      * Call this in your Activity.onCreate() BEFORE handleInitialIntent()
@@ -67,6 +86,10 @@ object SoftLink {
         Log.d(TAG, "SoftLink SDK initialized")
         // Note: deferred check is triggered from handleInitialIntent
         // if no URI is present — matches Flutter's init() flow
+        // Report app open for ad platform tracking
+        scope.launch(Dispatchers.IO) {
+            reportAppOpenInternal(context.applicationContext)
+        }
     }
 
     /**
@@ -157,6 +180,50 @@ object SoftLink {
         }
     }
 
+    /**
+     * Trigger a custom event defined in SoftLink portal
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun triggerEvent(
+        eventKey: String,
+        linkToken: String? = null,
+        sequence: Int? = null,
+        lastEventKey: String? = null,
+        metadata: Map<String, Any>? = null,
+        callback: SoftLinkCallback<Boolean>? = null
+    ) {
+        val c = client ?: run { callback?.onResult(false); return }
+        scope.launch(Dispatchers.IO) {
+            val result = c.triggerEvent(eventKey, linkToken, sequence, lastEventKey, metadata)
+            scope.launch(Dispatchers.Main) {
+                callback?.onResult(result)
+            }
+        }
+    }
+
+    /**
+     * Set user data for improved ad platform signal quality
+     * Email and phone are SHA256 hashed before sending
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun setUserData(
+        context: Context,
+        email: String? = null,
+        phone: String? = null,
+        callback: SoftLinkCallback<Boolean>? = null
+    ) {
+        val c = client ?: run { callback?.onResult(false); return }
+        scope.launch(Dispatchers.IO) {
+            val deviceId = SoftLinkDeviceInfo.getDeviceId(context)
+            val result = c.setUserData(deviceId = deviceId, email = email, phone = phone)
+            scope.launch(Dispatchers.Main) {
+                callback?.onResult(result)
+            }
+        }
+    }
+
     // Internal — resolve deep link from URI
     // Matches Flutter's _handleUri() with full deduplication logic
     internal fun resolveFromUri(uri: Uri) {
@@ -213,12 +280,6 @@ object SoftLink {
     // Internal — check for deferred deep link on install
     // Matches Flutter's _checkDeferred()
     private fun checkDeferred(context: Context) {
-        // Only check once — matches Flutter's one-time deferred resolution
-//        if (SoftLinkStorage.isDeferredResolved(context)) {
-//            Log.d(TAG, "checkDeferred: already resolved, skipping")
-//            return
-//        }
-
         val c = client ?: return
         scope.launch(Dispatchers.IO) {
             Log.d(TAG, "checkDeferred: starting...")
@@ -227,21 +288,28 @@ object SoftLink {
 
             Log.d(TAG, "checkDeferred: deviceId=$deviceId referrer=$referrer")
 
+            // Get GAID before updateFingerprintDeviceId — matches Flutter's _checkDeferred()
+            val gaid = SoftLinkDeviceInfo.getGAID(context)
+            Log.d(TAG, "checkDeferred: GAID=$gaid")
+
             if (deviceId.isNotEmpty()) {
-                c.updateFingerprintDeviceId(deviceId, referrer)
+                c.updateFingerprintDeviceId(deviceId, referrer, maid = gaid)
+            }
+
+            // Also store GAID in user data
+            if (!gaid.isNullOrEmpty()) {
+                c.setUserData(deviceId = deviceId, maid = gaid)
             }
 
             val deepLink = c.resolveDeferred(deviceId = deviceId, referrer = referrer)
             deepLink?.let {
                 Log.d(TAG, "checkDeferred: resolved screen=${it.screen}")
-//                SoftLinkStorage.setDeferredResolved(context)
                 scope.launch(Dispatchers.Main) {
                     onDeepLink?.invoke(it)
                 }
             } ?: Log.d(TAG, "checkDeferred: no deferred deep link found")
         }
     }
-
     // Internal — extract token from URI
     // Handles: https://domain.com/l/TOKEN or scheme://l/TOKEN
     private fun extractToken(uri: Uri): String? {

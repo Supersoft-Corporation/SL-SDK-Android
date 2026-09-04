@@ -16,6 +16,7 @@ internal class SoftLinkClient(
 ) {
 
     private val TAG = "SoftLinkClient"
+    private val SDK_VERSION = "0.0.17"
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -90,7 +91,7 @@ internal class SoftLinkClient(
 
             val request = Request.Builder()
                 .url(urlBuilder.toString())
-                .header("User-Agent", "SoftLink-Android-SDK/0.1.0")
+                .header("User-Agent", "SoftLink-Android-SDK/$SDK_VERSION")
                 .get()
                 .build()
 
@@ -177,12 +178,130 @@ internal class SoftLinkClient(
         }
     }
 
-    // private fun parseParams(json: JSONObject?): Map<String, Any> {
-    //     json ?: return emptyMap()
-    //     val map = mutableMapOf<String, Any>()
-    //     json.keys().forEach { key ->
-    //         map[key] = json.get(key)
-    //     }
-    //     return map
-    // }
+    /**
+ * Update fingerprint with device ID and MAID
+ * Matches Flutter's updateFingerprintDeviceId()
+ */
+suspend fun updateFingerprintDeviceId(deviceId: String, referrer: String?, maid: String? = null) {
+    try {
+        val body = JSONObject().apply {
+            put("device_id", deviceId)
+            if (!referrer.isNullOrEmpty()) put("referrer", referrer)
+            if (!maid.isNullOrEmpty()) put("maid", maid)
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/links/fingerprint/update")
+            .header("User-Agent", "SoftLink-Android-SDK/0.1.0")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+        httpClient.newCall(request).execute()
+    } catch (e: Exception) { }
+}
+
+/**
+ * Set user data for improved ad platform signal quality
+ * Matches Flutter's setUserData()
+ */
+suspend fun setUserData(deviceId: String, email: String? = null, phone: String? = null, maid: String? = null): Boolean {
+    return try {
+        val hashedEmail = email?.lowercase()?.trim()?.let { sha256(it) }
+        val hashedPhone = phone?.replace(Regex("[\\s\\-()]"), "")?.let { sha256(it) }
+
+        val body = JSONObject().apply {
+            put("device_id", deviceId)
+            if (hashedEmail != null) put("hashed_email", hashedEmail)
+            if (hashedPhone != null) put("hashed_phone", hashedPhone)
+            if (!maid.isNullOrEmpty()) put("maid", maid)
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/links/user-data")
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+        val response = httpClient.newCall(request).execute()
+        response.code == 200 || response.code == 201
+    } catch (e: Exception) {
+        Log.e(TAG, "setUserData error: ${e.message}")
+        false
+    }
+}
+
+/**
+ * Report app open for ad platform tracking
+ * Matches Flutter's reportAppOpen()
+ */
+suspend fun reportAppOpen(
+    deviceId: String,
+    platform: String,
+    osVersion: String? = null,
+    deviceModel: String? = null,
+    screenWidth: Int? = null,
+    screenHeight: Int? = null,
+    locale: String? = null
+): Boolean {
+    return try {
+        val body = JSONObject().apply {
+            put("device_id", deviceId)
+            put("platform", platform)
+            if (osVersion != null) put("os_version", osVersion)
+            if (deviceModel != null) put("device_model", deviceModel)
+            if (screenWidth != null) put("screen_width", screenWidth)
+            if (screenHeight != null) put("screen_height", screenHeight)
+            if (locale != null) put("locale", locale)
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/links/app-open")
+            .header("X-API-Key", apiKey)
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+        val response = httpClient.newCall(request).execute()
+        response.code == 200 || response.code == 201
+    } catch (e: Exception) {
+        Log.e(TAG, "reportAppOpen error: ${e.message}")
+        false
+    }
+}
+
+/**
+ * Trigger a custom event defined in SoftLink portal
+ * Matches Flutter's triggerEvent()
+ */
+suspend fun triggerEvent(
+    eventKey: String,
+    linkToken: String? = null,
+    sequence: Int? = null,
+    lastEventKey: String? = null,
+    metadata: Map<String, Any>? = null
+): Boolean {
+    return try {
+        val body = JSONObject().apply {
+            put("event_key", eventKey)
+            if (!linkToken.isNullOrEmpty()) put("link_token", linkToken)
+            if (sequence != null) put("sequence", sequence)
+            if (!lastEventKey.isNullOrEmpty()) put("last_event_key", lastEventKey)
+            if (metadata != null) {
+                val metaJson = JSONObject()
+                metadata.forEach { (k, v) -> metaJson.put(k, v) }
+                put("metadata", metaJson)
+            }
+        }
+        val request = Request.Builder()
+            .url("$baseUrl/api/events/trigger")
+            .header("X-API-Key", apiKey)
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(JSON))
+            .build()
+        val response = httpClient.newCall(request).execute()
+        response.code == 200 || response.code == 201
+    } catch (e: Exception) {
+        Log.e(TAG, "triggerEvent error: ${e.message}")
+        false
+    }
+}
+
+private fun sha256(input: String): String {
+    val bytes = java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray())
+    return bytes.joinToString("") { "%02x".format(it) }
+}
 }
