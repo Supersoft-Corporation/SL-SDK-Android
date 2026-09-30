@@ -284,6 +284,7 @@ suspend fun triggerEvent(
                 val metaJson = JSONObject()
                 metadata.forEach { (k, v) -> metaJson.put(k, v) }
                 put("metadata", metaJson)
+                put("platform", "android")
             }
         }
         val request = Request.Builder()
